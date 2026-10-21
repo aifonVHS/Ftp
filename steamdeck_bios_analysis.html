@@ -1,0 +1,961 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Steam Deck BIOS — Анализ прошивки</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;700&family=Syne:wght@400;700;800&display=swap');
+
+  :root {
+    --bg: #0a0c10;
+    --panel: #111318;
+    --border: #1e2330;
+    --accent: #4af0b0;
+    --accent2: #6a8fff;
+    --warn: #ffb347;
+    --danger: #ff5566;
+    --text: #c8d0e0;
+    --muted: #5a6278;
+    --green: #3ddc97;
+    --purple: #b48fff;
+    --teal: #4fc3c3;
+  }
+
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 13px;
+    line-height: 1.6;
+    min-height: 100vh;
+  }
+
+  header {
+    background: linear-gradient(135deg, #0d1117 0%, #0a1428 50%, #0d1117 100%);
+    border-bottom: 1px solid var(--border);
+    padding: 32px 40px 24px;
+    position: sticky;
+    top: 0;
+    z-index: 100;
+    backdrop-filter: blur(12px);
+  }
+
+  header h1 {
+    font-family: 'Syne', sans-serif;
+    font-size: 28px;
+    font-weight: 800;
+    color: var(--accent);
+    letter-spacing: -0.5px;
+    margin-bottom: 6px;
+  }
+  header h1 span { color: var(--accent2); }
+
+  .subtitle {
+    color: var(--muted);
+    font-size: 11px;
+    letter-spacing: 1px;
+    text-transform: uppercase;
+  }
+
+  .stats-bar {
+    display: flex;
+    gap: 24px;
+    margin-top: 16px;
+    flex-wrap: wrap;
+  }
+
+  .stat {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+  }
+  .stat-val {
+    font-size: 18px;
+    font-weight: 700;
+    color: var(--accent);
+    font-family: 'Syne', sans-serif;
+  }
+  .stat-label { font-size: 10px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.8px; }
+
+  .controls {
+    padding: 16px 40px;
+    border-bottom: 1px solid var(--border);
+    display: flex;
+    gap: 12px;
+    flex-wrap: wrap;
+    align-items: center;
+    background: var(--bg);
+    position: sticky;
+    top: 97px;
+    z-index: 99;
+  }
+
+  input[type="text"] {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    color: var(--text);
+    padding: 8px 14px;
+    border-radius: 6px;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 12px;
+    width: 280px;
+    outline: none;
+    transition: border-color 0.2s;
+  }
+  input[type="text"]:focus { border-color: var(--accent); }
+
+  .filter-btn {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    color: var(--muted);
+    padding: 7px 14px;
+    border-radius: 6px;
+    cursor: pointer;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px;
+    transition: all 0.2s;
+    white-space: nowrap;
+  }
+  .filter-btn:hover, .filter-btn.active {
+    border-color: var(--accent);
+    color: var(--accent);
+    background: rgba(74,240,176,0.08);
+  }
+
+  .main { padding: 24px 40px; max-width: 1600px; }
+
+  .grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(560px, 1fr));
+    gap: 16px;
+  }
+
+  .module-card {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    overflow: hidden;
+    transition: all 0.2s;
+  }
+  .module-card:hover {
+    border-color: var(--accent2);
+    transform: translateY(-2px);
+    box-shadow: 0 8px 32px rgba(0,0,0,0.4);
+  }
+  .module-card.hidden { display: none; }
+
+  .card-header {
+    padding: 14px 18px 10px;
+    border-bottom: 1px solid var(--border);
+    cursor: pointer;
+    user-select: none;
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    gap: 12px;
+  }
+
+  .card-header:hover { background: rgba(255,255,255,0.02); }
+
+  .module-addr {
+    font-size: 10px;
+    color: var(--muted);
+    font-family: 'JetBrains Mono', monospace;
+    margin-bottom: 4px;
+    letter-spacing: 0.5px;
+  }
+
+  .module-name {
+    font-family: 'Syne', sans-serif;
+    font-size: 15px;
+    font-weight: 700;
+    color: var(--text);
+    line-height: 1.3;
+    flex: 1;
+  }
+
+  .func-count {
+    background: rgba(106,143,255,0.15);
+    border: 1px solid rgba(106,143,255,0.3);
+    color: var(--accent2);
+    padding: 3px 10px;
+    border-radius: 20px;
+    font-size: 11px;
+    white-space: nowrap;
+    flex-shrink: 0;
+  }
+
+  .tags { display: flex; flex-wrap: wrap; gap: 5px; padding: 10px 18px 0; }
+
+  .tag {
+    font-size: 10px;
+    padding: 3px 9px;
+    border-radius: 4px;
+    letter-spacing: 0.3px;
+    font-weight: 700;
+    text-transform: uppercase;
+    border: 1px solid;
+  }
+
+  .tag-pci { color: #ff9f7a; border-color: rgba(255,159,122,0.4); background: rgba(255,159,122,0.1); }
+  .tag-usb { color: #74d7ff; border-color: rgba(116,215,255,0.4); background: rgba(116,215,255,0.1); }
+  .tag-net { color: #6a8fff; border-color: rgba(106,143,255,0.4); background: rgba(106,143,255,0.1); }
+  .tag-sec { color: #ff5566; border-color: rgba(255,85,102,0.4); background: rgba(255,85,102,0.1); }
+  .tag-pm  { color: #ffb347; border-color: rgba(255,179,71,0.4); background: rgba(255,179,71,0.1); }
+  .tag-stor { color: #4af0b0; border-color: rgba(74,240,176,0.4); background: rgba(74,240,176,0.1); }
+  .tag-boot { color: #b48fff; border-color: rgba(180,143,255,0.4); background: rgba(180,143,255,0.1); }
+  .tag-amd { color: #e8463c; border-color: rgba(232,70,60,0.4); background: rgba(232,70,60,0.1); }
+  .tag-ui  { color: #ffd166; border-color: rgba(255,209,102,0.4); background: rgba(255,209,102,0.1); }
+  .tag-tpm { color: #06d6a0; border-color: rgba(6,214,160,0.4); background: rgba(6,214,160,0.1); }
+  .tag-fw  { color: #caf0f8; border-color: rgba(202,240,248,0.4); background: rgba(202,240,248,0.1); }
+  .tag-misc { color: var(--muted); border-color: rgba(90,98,120,0.4); background: rgba(90,98,120,0.1); }
+
+  .card-body {
+    padding: 14px 18px 16px;
+    display: none;
+  }
+  .card-body.open { display: block; }
+
+  .section-title {
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    color: var(--muted);
+    margin-bottom: 8px;
+    margin-top: 12px;
+  }
+  .section-title:first-child { margin-top: 0; }
+
+  .desc-text {
+    color: var(--text);
+    font-size: 12px;
+    line-height: 1.7;
+    border-left: 2px solid var(--border);
+    padding-left: 12px;
+    margin-bottom: 12px;
+  }
+
+  .func-list { display: flex; flex-direction: column; gap: 4px; }
+
+  .func-item {
+    display: flex;
+    gap: 10px;
+    align-items: flex-start;
+    padding: 6px 10px;
+    border-radius: 5px;
+    background: rgba(255,255,255,0.02);
+    border: 1px solid transparent;
+    transition: all 0.15s;
+  }
+  .func-item:hover { border-color: var(--border); background: rgba(255,255,255,0.04); }
+
+  .func-addr {
+    color: var(--accent2);
+    font-size: 10px;
+    white-space: nowrap;
+    flex-shrink: 0;
+    padding-top: 1px;
+    font-weight: 700;
+  }
+
+  .func-info { flex: 1; min-width: 0; }
+
+  .func-sig {
+    color: var(--accent);
+    font-size: 11px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-weight: 700;
+  }
+
+  .func-hints {
+    color: var(--muted);
+    font-size: 10px;
+    line-height: 1.5;
+    margin-top: 2px;
+  }
+
+  .func-size {
+    color: var(--muted);
+    font-size: 10px;
+    white-space: nowrap;
+    flex-shrink: 0;
+    text-align: right;
+    padding-top: 1px;
+  }
+
+  .toggle-icon { color: var(--muted); font-size: 14px; transition: transform 0.2s; flex-shrink: 0; }
+  .card-header.open .toggle-icon { transform: rotate(90deg); }
+
+  .chevron { color: var(--muted); font-size: 10px; }
+
+  .section-sep {
+    border: none;
+    border-top: 1px solid var(--border);
+    margin: 12px 0;
+  }
+
+  .no-results {
+    text-align: center;
+    color: var(--muted);
+    padding: 60px;
+    font-size: 14px;
+    display: none;
+  }
+
+  ::-webkit-scrollbar { width: 6px; }
+  ::-webkit-scrollbar-track { background: var(--bg); }
+  ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+
+  .highlight { color: var(--accent); font-weight: 700; }
+</style>
+</head>
+<body>
+
+<header>
+  <div class="module-addr">VOLUME: EFI_FIRMWARE_FILE_SYSTEM2_GUID</div>
+  <h1>Steam Deck <span>BIOS</span> — Полный анализ</h1>
+  <div class="subtitle">Декомпиляция Ghidra · AMD Van Gogh SoC · UEFI/AMI Aptio</div>
+  <div class="stats-bar">
+    <div class="stat"><div class="stat-val">12 403</div><div class="stat-label">Функций</div></div>
+    <div class="stat"><div class="stat-val">842 000+</div><div class="stat-label">Строк кода</div></div>
+    <div class="stat"><div class="stat-val">130+</div><div class="stat-label">Модулей (DXE)</div></div>
+    <div class="stat"><div class="stat-val">~18 МБ</div><div class="stat-label">Размер тома</div></div>
+  </div>
+</header>
+
+<div class="controls">
+  <input type="text" id="search" placeholder="🔍  Поиск по модулям и функциям...">
+  <button class="filter-btn active" data-filter="all">Все</button>
+  <button class="filter-btn" data-filter="sec">SecureBoot</button>
+  <button class="filter-btn" data-filter="amd">AMD/AGESA</button>
+  <button class="filter-btn" data-filter="net">Сеть</button>
+  <button class="filter-btn" data-filter="stor">Хранилище</button>
+  <button class="filter-btn" data-filter="pm">Power</button>
+  <button class="filter-btn" data-filter="usb">USB</button>
+  <button class="filter-btn" data-filter="boot">Boot</button>
+  <button class="filter-btn" data-filter="tpm">TPM</button>
+  <button class="filter-btn" data-filter="pci">PCI/PCIe</button>
+</div>
+
+<div class="main">
+  <div class="grid" id="grid"></div>
+  <div class="no-results" id="noResults">Ничего не найдено</div>
+</div>
+
+<script>
+const MODULES = [
+  {
+    id:"0000", addr:"0x00000464–0x0000FCB0", funcs:113,
+    name:"Ядро DXE: менеджер памяти и протоколов",
+    tags:["misc"],
+    desc:"Базовые операции DXE-окружения: управление памятью, итерация по структурам данных, работа с handle database. Функции обёртки над Boot Services. Крупнейшая — FUN_0000c174 (352 стр.) — обработка ошибок устройств с retry-логикой.",
+    bigFuncs:[
+      {addr:"0x0000c174", name:"FUN_0000c174", lines:352, hints:"EFI_DEVICE_ERROR handler, retry logic, vtable [0x20, 0x58]"},
+      {addr:"0x0000ea5c", name:"FUN_0000ea5c", lines:212, hints:"Protocol dispatch, vtable calls [0x20, 0x58]"},
+      {addr:"0x000061cc", name:"FUN_000061cc", lines:170, hints:"Event/timer management, vtable [0xe8, 0x98, 0x170]"},
+      {addr:"0x0000447c", name:"FUN_0000447c", lines:202, hints:"Memory allocation loop, vtable [0x10]"},
+      {addr:"0x0000d394", name:"FUN_0000d394", lines:157, hints:"State machine / parser"}
+    ]
+  },
+  {
+    id:"0001", addr:"0x00011828–0x0001FC1C", funcs:35,
+    name:"Инициализация платформы: StartUp / PlatformDxe",
+    tags:["misc"],
+    desc:"Модуль ранней инициализации платформы. FUN_000135f8 — крупнейшая функция (1932 строки), вероятно PlatformDxeEntry или BoardInit: настраивает все глобальные структуры, устанавливает протоколы, вызывает цепочку инициализации. Типичный AMD reference platform init.",
+    bigFuncs:[
+      {addr:"0x000135f8", name:"FUN_000135f8", lines:1932, hints:"PlatformDxe entry point / board init (HUGE)"},
+      {addr:"0x0001ac60", name:"FUN_0001ac60", lines:207, hints:"Protocol handler chain"},
+      {addr:"0x0001b614", name:"FUN_0001b614", lines:157, hints:"Vtable dispatch [0x30, 0x48, 0x140, 0x58]"}
+    ]
+  },
+  {
+    id:"0006", addr:"0x000606F4–0x0006FFD4", funcs:114,
+    name:"Power Management: CPU C/P-states, MSR",
+    tags:["pm"],
+    desc:"Управление питанием процессора. Активно читает/пишет MSR-регистры (Model Specific Registers) для управления C-states, P-states, частотой и напряжением AMD Van Gogh APU. Порты 0x2E/0x2F — SuperIO chip (обычно IT8786E на Steam Deck для embedded controller). Порт 0x9005 — нестандартный SuperIO index.",
+    bigFuncs:[
+      {addr:"0x000641a8", name:"FUN_000641a8", lines:189, hints:"CPU MSR read/write: C-state config"},
+      {addr:"0x0006b664", name:"FUN_0006b664", lines:148, hints:"MSR read+write: voltage/frequency control"},
+      {addr:"0x00069170", name:"FUN_00069170", lines:127, hints:"MSR: P-state management"},
+      {addr:"0x00065990", name:"FUN_00065990", lines:133, hints:"SuperIO EC access via ports 0x2E/0x2F/0x9005"}
+    ]
+  },
+  {
+    id:"0007", addr:"0x0007015C–0x0007FEA4", funcs:116,
+    name:"Power Management: ACPI / S-states",
+    tags:["pm"],
+    desc:"Обработка ACPI power states (S0/S3/S4/S5), wake events, управление GPIO для питания Rail'ов. FUN_0007af24 — крупная функция без явных хинтов, вероятно ACPI AML evaluation или S-state transition handler.",
+    bigFuncs:[
+      {addr:"0x0007af24", name:"FUN_0007af24", lines:246, hints:"ACPI S-state transition / AML evaluation"},
+      {addr:"0x00077ba4", name:"FUN_00077ba4", lines:233, hints:"Protocol dispatch, vtable [0xc0, 0x148, 0x10]"},
+      {addr:"0x0007b758", name:"FUN_0007b758", lines:219, hints:"Wake event handler"}
+    ]
+  },
+  {
+    id:"000c", addr:"0x000C05D8–0x000CF7E4", funcs:94,
+    name:"CMOS / RTC: порты 0x70–0x71",
+    tags:["fw"],
+    desc:"Драйвер CMOS RTC. Стандартные порты 0x70/0x71 для доступа к CMOS-регистрам, порт 0x80 — POST code port (diagnostic). Используется для хранения настроек BIOS (boot order, date/time, флаги POST). FUN_000c103c — обработка POST кодов.",
+    bigFuncs:[
+      {addr:"0x000c103c", name:"FUN_000c103c", lines:177, hints:"POST code output (port 0x80) + CMOS init"},
+      {addr:"0x000cc2a8", name:"FUN_000cc2a8", lines:137, hints:"CMOS data structures parser"},
+      {addr:"0x000c06d0", name:"FUN_000c06d0", lines:95, hints:"MSR read + multi-protocol vtable dispatch"}
+    ]
+  },
+  {
+    id:"000d", addr:"0x000D05C0–0x000DFA10", funcs:90,
+    name:"Неизвестный крупный модуль (возможно AML / SMM dispatcher)",
+    tags:["misc"],
+    desc:"Содержит аномально крупные функции без опознанных строк: FUN_000da8a8 (863 строки!) и FUN_000d10e8 (369 строк). Вероятно SMM Dispatcher или ACPI AML Interpreter. Такие монолитные функции типичны для state-machine'ов ACPI.",
+    bigFuncs:[
+      {addr:"0x000da8a8", name:"FUN_000da8a8", lines:863, hints:"⚠️ ОГРОМНАЯ функция — SMM dispatcher / AML interpreter?"},
+      {addr:"0x000d10e8", name:"FUN_000d10e8", lines:369, hints:"Large state machine"},
+      {addr:"0x000deb6c", name:"FUN_000deb6c", lines:162, hints:"Sub-dispatcher"}
+    ]
+  },
+  {
+    id:"000f", addr:"0x000F6934–0x000FFEA8", funcs:82,
+    name:"Capsule Update (прошивка OTA/USB)",
+    tags:["fw"],
+    desc:"UEFI Capsule Update — механизм обновления прошивки. Обрабатывает UEFI capsule файлы (*.cap), проверяет GUID, записывает новый образ во flash. Именно через этот код Steam Deck применяет обновления BIOS, которые Valve рассылает через SteamOS.",
+    bigFuncs:[
+      {addr:"0x000fa72c", name:"FUN_000fa72c", lines:125, hints:"Capsule validation + flash write"},
+      {addr:"0x000f83ac", name:"FUN_000f83ac", lines:111, hints:"Capsule header parse"},
+      {addr:"0x000ffb88", name:"FUN_000ffb88", lines:78, hints:"Reset after update [0xc0, 0x170, 0xd0]"}
+    ]
+  },
+  {
+    id:"0010", addr:"0x00100188–0x0010F2D4", funcs:99,
+    name:"Boot Manager + TCG/TPM",
+    tags:["boot","tpm"],
+    desc:"Boot Manager: управление boot options (BootOrder, Boot####), выбор загрузочного устройства, загрузка EFI-приложений. Вместе с TCG (Trusted Computing Group) — измерение boot компонентов в TPM PCR регистры для Secure Boot chain of trust.",
+    bigFuncs:[
+      {addr:"0x0010f2d4", name:"FUN_0010f2d4", lines:369, hints:"Boot option enumeration / BDS"},
+      {addr:"0x00108a98", name:"FUN_00108a98", lines:333, hints:"Device error + boot retry logic"},
+      {addr:"0x0010d980", name:"FUN_0010d980", lines:212, hints:"Boot device selection"},
+      {addr:"0x00109b68", name:"FUN_00109b68", lines:122, hints:"TCG measurement [vtable 0x148, 0x150]"}
+    ]
+  },
+  {
+    id:"0011", addr:"0x00110034–0x0011F944", funcs:73,
+    name:"TPM 2.0 / TCG Protocol",
+    tags:["tpm","sec"],
+    desc:"Реализация TPM 2.0 протокола (TCG EFI Protocol Spec). FUN_00116b54 (654 строки) — вероятно TPM2_Submit или TcgDxeLogEvent: отправка команд TPM через MMIO/LPC, запись в PCR. Steam Deck использует TPM для хранения ключей шифрования диска (если включён).",
+    bigFuncs:[
+      {addr:"0x00116b54", name:"FUN_00116b54", lines:654, hints:"⚠️ Огромная! TPM2 command submission / PCR extend"},
+      {addr:"0x00115ee4", name:"FUN_00115ee4", lines:121, hints:"TPM event log parser"},
+      {addr:"0x001162fc", name:"FUN_001162fc", lines:114, hints:"TPM capability check"}
+    ]
+  },
+  {
+    id:"0013", addr:"0x001304D0–0x0013FEA8", funcs:82,
+    name:"Boot Manager: шрифты / BMP / Font rendering",
+    tags:["boot","ui"],
+    desc:"Рендеринг шрифтов и BMP-изображений для Boot Manager UI. HII Font Protocol — стандартный UEFI механизм для отрисовки текста. Используется для отображения меню BIOS Setup и загрузочного экрана.",
+    bigFuncs:[
+      {addr:"0x001386f0", name:"FUN_001386f0", lines:187, hints:"Font glyph renderer"},
+      {addr:"0x00138a38", name:"FUN_00138a38", lines:162, hints:"BMP/image decode"},
+      {addr:"0x0013edd8", name:"FUN_0013edd8", lines:130, hints:"EFI_INVALID_PARAMETER — input validation"}
+    ]
+  },
+  {
+    id:"0014", addr:"0x00140434–0x0014FD64", funcs:112,
+    name:"Device Path Protocol + Boot Manager + CMOS",
+    tags:["boot","fw"],
+    desc:"EFI Device Path Protocol — формирование и парсинг device path (уникальный путь к устройству в UEFI). Используется для описания загрузочных устройств. Также обращается к CMOS через порт 0x80 и содержит Boot Manager logic.",
+    bigFuncs:[
+      {addr:"0x00149644", name:"FUN_00149644", lines:314, hints:"Device path construction + protocol locate"},
+      {addr:"0x0014cd9c", name:"FUN_0014cd9c", lines:313, hints:"EFI_NOT_FOUND handler — boot fallback"},
+      {addr:"0x0014d410", name:"FUN_0014d410", lines:262, hints:"POST code (port 0x80) + boot sequence"}
+    ]
+  },
+  {
+    id:"0015", addr:"0x0015013C–0x0015FEAC", funcs:118,
+    name:"SecureBoot + AMD + HTTP Boot + Capsule",
+    tags:["sec","amd","net","fw"],
+    desc:"Мультифункциональный модуль: Secure Boot key management, AMD-специфичная инициализация, HTTP Boot (загрузка по сети через HTTP/HTTPS), Capsule Update. Steam Deck поддерживает Secure Boot — через этот код проходит верификация подписей EFI-приложений.",
+    bigFuncs:[
+      {addr:"0x001553f4", name:"FUN_001553f4", lines:317, hints:"EFI_DEVICE_ERROR — Secure Boot key verify fail"},
+      {addr:"0x00154038", name:"FUN_00154038", lines:246, hints:"AMD platform init path"},
+      {addr:"0x00151238", name:"FUN_00151238", lines:207, hints:"HTTP boot negotiation"}
+    ]
+  },
+  {
+    id:"0016", addr:"0x00160064–0x0016FF84", funcs:31,
+    name:"AMD/AGESA: SuperIO / EC инициализация",
+    tags:["amd"],
+    desc:"AMD AGESA reference код для инициализации SuperIO (Embedded Controller). Порт 0x66 — EC command register, порт 0x62 — EC data. Порт 0xED — I/O delay. FUN_00160bdc (253 строки) — полная инициализация SuperIO chip.",
+    bigFuncs:[
+      {addr:"0x00160bdc", name:"FUN_00160bdc", lines:253, hints:"SuperIO init: ports 0x66, 0x80, EC delay 0xED"},
+      {addr:"0x001602e0", name:"FUN_001602e0", lines:111, hints:"EC protocol setup + error handling"}
+    ]
+  },
+  {
+    id:"0018", addr:"0x00180250–0x001898E0", funcs:110,
+    name:"Secure Boot: верификация сигнатур",
+    tags:["sec"],
+    desc:"Проверка цифровых подписей EFI-образов. Реализует Image Authentication Protocol — при включённом Secure Boot каждый .efi файл проверяется по базам данных db/dbx/KEK/PK. На Steam Deck Valve контролирует PK (Platform Key).",
+    bigFuncs:[
+      {addr:"0x00187a10", name:"FUN_00187a10", lines:93, hints:"Signature validation — EFI_INVALID_PARAMETER on fail"},
+      {addr:"0x00181c8c", name:"FUN_00181c8c", lines:78, hints:"Certificate chain verification"},
+      {addr:"0x00181920", name:"FUN_00181920", lines:70, hints:"Key database lookup (db/dbx)"}
+    ]
+  },
+  {
+    id:"0019", addr:"0x001906E0–0x0019F8BC", funcs:65,
+    name:"Secure Boot: управление ключами (KEK/PK/db)",
+    tags:["sec"],
+    desc:"Управление базами данных ключей Secure Boot: PK (Platform Key), KEK (Key Exchange Key), db (authorized signatures), dbx (forbidden signatures). FUN_0019598c (275 строк) — комплексная операция с ключами, вероятно SetVariable для db/dbx.",
+    bigFuncs:[
+      {addr:"0x0019598c", name:"FUN_0019598c", lines:275, hints:"Secure Boot key database update (SetVariable)"},
+      {addr:"0x001981a4", name:"FUN_001981a4", lines:212, hints:"Key enrollment flow"},
+      {addr:"0x00190cc8", name:"FUN_00190cc8", lines:166, hints:"EFI_DEVICE_ERROR — flash write fail for key store"}
+    ]
+  },
+  {
+    id:"001a", addr:"0x001A0294–0x001AFE60", funcs:106,
+    name:"Power Management: ACPI / Sleep States",
+    tags:["pm"],
+    desc:"ACPI Power Management: обработка sleep states S3 (Suspend to RAM), S4 (Suspend to Disk). Steam Deck использует S3/S0ix для режима сна. Порты 0x2E/0x2F — SuperIO для управления питанием периферии. FUN_001ac7ec (341 строка) — S3 resume handler.",
+    bigFuncs:[
+      {addr:"0x001ac7ec", name:"FUN_001ac7ec", lines:341, hints:"S3 resume / sleep state init"},
+      {addr:"0x001aea8c", name:"FUN_001aea8c", lines:133, hints:"SuperIO power control: ports 0x2E/0x2F/0x9005"}
+    ]
+  },
+  {
+    id:"001c", addr:"0x001C0710–0x001CFEE4", funcs:87,
+    name:"PCI: конфигурационное пространство",
+    tags:["pci"],
+    desc:"PCI Configuration Space драйвер. FUN_001c14a4 (616 строк!) использует порты 0xCF8/0xCFC — стандартный механизм доступа к PCI config space через I/O (legacy PCI). Крупная функция вероятно реализует PCI bus enumeration.",
+    bigFuncs:[
+      {addr:"0x001c14a4", name:"FUN_001c14a4", lines:616, hints:"⚠️ PCI bus enumeration: ports 0xCF8/0xCFC"},
+      {addr:"0x001c7054", name:"FUN_001c7054", lines:288, hints:"EFI_NOT_FOUND — device not present fallback"},
+      {addr:"0x001ccb68", name:"FUN_001ccb68", lines:126, hints:"PCI config read/write helpers"}
+    ]
+  },
+  {
+    id:"001d", addr:"0x001D1BC4–0x001DC0E8", funcs:101,
+    name:"Serial / UART драйвер",
+    tags:["misc"],
+    desc:"EFI Serial I/O Protocol — UART драйвер. Используется для debug output (ConOut → UART) в dev-режиме. На Steam Deck UART debug port доступен через специальный разъём на материнской плате (для разработчиков).",
+    bigFuncs:[
+      {addr:"0x001d26a0", name:"FUN_001d26a0", lines:122, hints:"UART Tx/Rx with error recovery"},
+      {addr:"0x001d85e4", name:"FUN_001d85e4", lines:101, hints:"Serial output protocol handler"},
+      {addr:"0x001d3afc", name:"FUN_001d3afc", lines:96, hints:"EFI_ACCESS_DENIED — locked serial port"}
+    ]
+  },
+  {
+    id:"002c", addr:"0x002C0384–0x002CB610", funcs:81,
+    name:"Secure Boot: Image Loader верификация",
+    tags:["sec"],
+    desc:"Проверка образов при загрузке через EFI Image Loader. Интегрируется с Secure Boot для верификации каждого загружаемого EFI-файла. FUN_002c0c6c — EFI_DEVICE_ERROR при неверной подписи (отказ в загрузке).",
+    bigFuncs:[
+      {addr:"0x002ca040", name:"FUN_002ca040", lines:174, hints:"Image signature check flow"},
+      {addr:"0x002c1620", name:"FUN_002c1620", lines:120, hints:"Certificate verification chain"},
+      {addr:"0x002c0c6c", name:"FUN_002c0c6c", lines:116, hints:"EFI_DEVICE_ERROR — signature mismatch → block load"}
+    ]
+  },
+  {
+    id:"0033", addr:"0x003317EC–0x0033FF64", funcs:70,
+    name:"Secure Boot: NVRAM Variable Store для ключей",
+    tags:["sec","fw"],
+    desc:"Хранение Secure Boot переменных в NVRAM (SPI Flash). Управляет authenticated variables: SetVariable с атрибутом EFI_VARIABLE_TIME_BASED_AUTHENTICATED_WRITE_ACCESS. Vtable offset 0x1000 — необычный, возможно кастомный Valve протокол.",
+    bigFuncs:[
+      {addr:"0x0033252c", name:"FUN_0033252c", lines:118, hints:"Authenticated variable write (vtable 0x1000 — custom?)"},
+      {addr:"0x00331e88", name:"FUN_00331e88", lines:175, hints:"NVRAM key store layout parser"}
+    ]
+  },
+  {
+    id:"003b", addr:"0x003B037C–0x003BFEBC", funcs:98,
+    name:"Device Path + Boot Manager + HTTP",
+    tags:["boot","net"],
+    desc:"Расширенный Boot Manager с поддержкой HTTP Boot и Device Path. FUN_003bb500 (328 строк) и FUN_003b0e00 (324 строки) — основные функции управления загрузочными устройствами. Поддержка IPv4/IPv6 для сетевой загрузки.",
+    bigFuncs:[
+      {addr:"0x003bb500", name:"FUN_003bb500", lines:328, hints:"Boot device management + HTTP boot path"},
+      {addr:"0x003b0e00", name:"FUN_003b0e00", lines:324, hints:"Boot option enumeration with network support"},
+      {addr:"0x003ba138", name:"FUN_003ba138", lines:246, hints:"Capsule + device path integration"}
+    ]
+  },
+  {
+    id:"003d", addr:"0x003D0E74–0x003DFD4C", funcs:89,
+    name:"CDROM/ATAPI + Console + Boot",
+    tags:["stor","boot","ui"],
+    desc:"Поддержка CDROM/ATAPI устройств (USB DVD, виртуальные приводы). Console Output — SimpleTextOutput Protocol. Boot Manager для CDROM устройств. Содержит строки 'CDROM(0x%x)' для форматирования device path.",
+    bigFuncs:[
+      {addr:"0x003dd4d0", name:"FUN_003dd4d0", lines:311, hints:"CDROM device path + boot option builder"},
+      {addr:"0x003d2c1c", name:"FUN_003d2c1c", lines:233, hints:"ATAPI command handler with error recovery"},
+      {addr:"0x003d6160", name:"FUN_003d6160", lines:201, hints:"Multi-error CDROM state machine"}
+    ]
+  },
+  {
+    id:"00a7", addr:"0x00A70B54–0x00A7FF84", funcs:90,
+    name:"Network: TCP/IP + DNS",
+    tags:["net"],
+    desc:"TCP/IP стек и DNS резолвер. FUN_00a72cf4 (231 строка) — вероятно TCP connection establishment или DNS query. Используется для HTTP Boot и PXE загрузки. Поддержка IPv4 и IPv6.",
+    bigFuncs:[
+      {addr:"0x00a72cf4", name:"FUN_00a72cf4", lines:231, hints:"TCP connect / DNS resolve"},
+      {addr:"0x00a7bb70", name:"FUN_00a7bb70", lines:88, hints:"EFI_INVALID_PARAMETER — bad DNS response"},
+      {addr:"0x00a70b54", name:"FUN_00a70b54", lines:87, hints:"EFI_NOT_FOUND — DNS lookup failure"}
+    ]
+  },
+  {
+    id:"00a8", addr:"0x00A8011C–0x00A8FE94", funcs:73,
+    name:"Network: TFTP / PXE Boot",
+    tags:["net"],
+    desc:"TFTP клиент и PXE (Preboot eXecution Environment) для сетевой загрузки. Позволяет грузить прошивки и образы по сети — используется в production на заводе Valve и при разработке. FUN_00a840b4 — TFTP data transfer с обработкой ошибок.",
+    bigFuncs:[
+      {addr:"0x00a8cbfc", name:"FUN_00a8cbfc", lines:116, hints:"TFTP transfer: ACK/DATA/ERROR packets"},
+      {addr:"0x00a840b4", name:"FUN_00a840b4", lines:114, hints:"TFTP session management"},
+      {addr:"0x00a80234", name:"FUN_00a80234", lines:90, hints:"PXE DHCP/TFTP boot flow"}
+    ]
+  },
+  {
+    id:"00aa", addr:"0x00AA0024–0x00AAFE98", funcs:81,
+    name:"Network: TCP/IP стек (Layer 4)",
+    tags:["net"],
+    desc:"Реализация TCP протокола (Layer 4). Управление соединениями, ACK/SYN/FIN state machine, буферизация. EFI_ACCESS_DENIED в FUN_00aa63a4 — попытка установить соединение на запрещённый порт.",
+    bigFuncs:[
+      {addr:"0x00aa63a4", name:"FUN_00aa63a4", lines:95, hints:"TCP ACL: EFI_ACCESS_DENIED for restricted ports"},
+      {addr:"0x00aa09c4", name:"FUN_00aa09c4", lines:88, hints:"TCP connection via socket vtable [0x8fc, 0x900]"}
+    ]
+  },
+  {
+    id:"00ab", addr:"0x00AB0294–0x00ABF1C8", funcs:75,
+    name:"Network: TFTP + DHCP",
+    tags:["net"],
+    desc:"DHCP клиент (DHCP Discover/Offer/Request/Ack) + интеграция с TFTP. Получение IP-адреса и пути к boot файлу. Используется при PXE Boot — Steam Deck может грузиться с сетевого сервера (например recovery образы).",
+    bigFuncs:[
+      {addr:"0x00abcb20", name:"FUN_00abcb20", lines:133, hints:"DHCP message build + send/receive"},
+      {addr:"0x00abc344", name:"FUN_00abc344", lines:113, hints:"DHCP option parser"},
+      {addr:"0x00abc628", name:"FUN_00abc628", lines:99, hints:"DHCP ACK handler → configure IP"}
+    ]
+  },
+  {
+    id:"00b1", addr:"0x00B103E0–0x00B1F364", funcs:43,
+    name:"AMD/AGESA: CPU инициализация + MSR",
+    tags:["amd"],
+    desc:"AMD AGESA CPU initialization. FUN_00b12340 (452 строки) — вероятно AgesaInitPost или CPU core init: настройка MSR, кэша, MTRR (Memory Type Range Registers). EFI_ACCESS_DENIED в FUN_00b138dc — попытка записать защищённый MSR.",
+    bigFuncs:[
+      {addr:"0x00b12340", name:"FUN_00b12340", lines:452, hints:"⚠️ AMD CPU core init: MSR, cache, MTRR setup"},
+      {addr:"0x00b138dc", name:"FUN_00b138dc", lines:143, hints:"EFI_ACCESS_DENIED — locked MSR write attempt"}
+    ]
+  },
+  {
+    id:"00b2", addr:"0x00B208C8–0x00B2D8FC", funcs:91,
+    name:"AMD/AGESA: системный агент (NB/DF)",
+    tags:["amd"],
+    desc:"AMD Data Fabric (DF) и North Bridge инициализация. FUN_00b26cfc (218 строк) с MSR — настройка Data Fabric topology, NUMA, memory interleaving. Специфично для AMD Van Gogh — единый APU без отдельного NB.",
+    bigFuncs:[
+      {addr:"0x00b26cfc", name:"FUN_00b26cfc", lines:218, hints:"AMD DF/NB init: MSR config, memory topology"},
+      {addr:"0x00b26738", name:"FUN_00b26738", lines:99, hints:"EFI_DEVICE_ERROR — fabric init fail"}
+    ]
+  },
+  {
+    id:"00b3", addr:"0x00B31D6C–0x00B3FD50", funcs:92,
+    name:"AMD/AGESA + Boot Manager + Console",
+    tags:["amd","boot","ui"],
+    desc:"Интеграция AMD AGESA с Boot Services. Console management, SimpleTextOutput. FUN_00b359a0 (331 строка) — основная функция инициализации с AMD-специфичными протоколами. FUN_00b35530 (195 строк) — multi-error handler.",
+    bigFuncs:[
+      {addr:"0x00b359a0", name:"FUN_00b359a0", lines:331, hints:"AMD platform + boot integration"},
+      {addr:"0x00b3dc20", name:"FUN_00b3dc20", lines:178, hints:"Console multiplexer [vtable 0x140]"}
+    ]
+  },
+  {
+    id:"00b4", addr:"0x00B408A8–0x00B4B354", funcs:69,
+    name:"AMD/AGESA + Device Path + TPM",
+    tags:["amd","boot","tpm"],
+    desc:"AMD-специфичная работа с Device Path и TPM измерениями. FUN_00b40e20 (451 строка) с MSR — крупнейшая, вероятно AMD SMU (System Management Unit) initialization или PSP (Platform Security Processor) handshake.",
+    bigFuncs:[
+      {addr:"0x00b40e20", name:"FUN_00b40e20", lines:451, hints:"⚠️ AMD SMU/PSP init or secure boot measurement"},
+      {addr:"0x00b433b4", name:"FUN_00b433b4", lines:277, hints:"Device path + TPM PCR extend"}
+    ]
+  },
+  {
+    id:"00fc", addr:"0x00FC5020–0x00FCFE90", funcs:107,
+    name:"Block I/O: NVMe + SPI Flash + SATA/AHCI",
+    tags:["stor"],
+    desc:"Абстрактный Block I/O уровень для всех хранилищ: NVMe (основной SSD Steam Deck — 64/256/512GB), SPI Flash (сама прошивка BIOS), SATA/AHCI. FUN_00fc9b5c (221 строка) — SMBus-ориентированный I/O, вероятно для eMMC или NVMe temp sensor.",
+    bigFuncs:[
+      {addr:"0x00fc9b5c", name:"FUN_00fc9b5c", lines:221, hints:"Block I/O + SMBus: NVMe/eMMC/SATA dispatch"},
+      {addr:"0x00fcbb18", name:"FUN_00fcbb18", lines:212, hints:"Multi-protocol storage transfer [0x2d8, 0x38]"}
+    ]
+  },
+  {
+    id:"00fd", addr:"0x00FD0078–0x00FDFA9C", funcs:68,
+    name:"Partition: GPT + MBR парсер",
+    tags:["stor"],
+    desc:"Обнаружение и парсинг разделов диска: GPT (GUID Partition Table) и MBR. FUN_00fd2a48 (669 строк!) — монстр-функция, полный GPT parser с верификацией CRC, резервной копией таблицы. На Steam Deck GPT разделы: EFI System, rootfs A/B, swap, home.",
+    bigFuncs:[
+      {addr:"0x00fd2a48", name:"FUN_00fd2a48", lines:669, hints:"⚠️ ПОЛНЫЙ GPT parser: header, CRC32, backup table"},
+      {addr:"0x00fd6d1c", name:"FUN_00fd6d1c", lines:310, hints:"MBR fallback + hybrid MBR support"},
+      {addr:"0x00fd5108", name:"FUN_00fd5108", lines:301, hints:"Partition entry validation"}
+    ]
+  },
+  {
+    id:"00fe", addr:"0x00FE07F4–0x00FEF184", funcs:85,
+    name:"SPI Flash + NVMe: низкоуровневый I/O",
+    tags:["stor"],
+    desc:"Прямой доступ к SPI Flash (чтение/запись BIOS-области) и NVMe команды. FUN_00feb39c (437 строк) — вероятно NVMe Admin Queue setup или SPI flash write/erase с верификацией. Этот код записывает обновления прошивки в flash.",
+    bigFuncs:[
+      {addr:"0x00feb39c", name:"FUN_00feb39c", lines:437, hints:"SPI flash erase+write or NVMe Admin Queue"},
+      {addr:"0x00fef184", name:"FUN_00fef184", lines:246, hints:"Low-level flash command execution"},
+      {addr:"0x00fee398", name:"FUN_00fee398", lines:238, hints:"Storage protocol vtable [0x1c]"}
+    ]
+  },
+  {
+    id:"0100", addr:"0x01009390–0x0100F978", funcs:49,
+    name:"AMD/AGESA + ACPI Tables",
+    tags:["amd"],
+    desc:"Построение ACPI таблиц (DSDT, SSDT, FADT, MADT) с помощью AMD AGESA. FUN_0100c4a4 (163 строки) с необычными vtable offsets (0x2e, 0x4e, 0x32) — вероятно ACPI AML bytecode generation.",
+    bigFuncs:[
+      {addr:"0x0100adac", name:"FUN_0100adac", lines:180, hints:"ACPI table assembly"},
+      {addr:"0x0100c4a4", name:"FUN_0100c4a4", lines:163, hints:"ACPI AML generation [vtable 0x2e, 0x4e, 0x32]"}
+    ]
+  },
+  {
+    id:"0107", addr:"0x0107011C–0x0107FD08", funcs:108,
+    name:"SPI Flash Driver + AMD PSP + SMM",
+    tags:["stor","amd","sec"],
+    desc:"SPI Flash контроллер + AMD PSP (Platform Security Processor) + SMM (System Management Mode). PSP — отдельный ARM-процессор внутри AMD SoC, отвечающий за безопасную загрузку. SMM — привилегированный режим для power management и security.",
+    bigFuncs:[
+      {addr:"0x01075b44", name:"FUN_01075b44", lines:160, hints:"SPI flash controller init"},
+      {addr:"0x0107ced0", name:"FUN_0107ced0", lines:149, hints:"PSP/SMM protocol dispatch"},
+      {addr:"0x0107368c", name:"FUN_0107368c", lines:111, hints:"SMM handler registration"}
+    ]
+  },
+  {
+    id:"010a", addr:"0x010A013C–0x010AFC8C", funcs:65,
+    name:"Power Management: Reset + ACPI порты",
+    tags:["pm"],
+    desc:"Управление сбросом системы и ACPI портами. Порты 0xE0/0x80 — ACPI PM control. FUN_010a0b34 (338 строк) и FUN_010a03a0 (235 строк) — полная реализация ACPI power state transitions включая S5 (soft-off). Порт 0x87B4 — нестандартный, вероятно AMD FCH GPIO.",
+    bigFuncs:[
+      {addr:"0x010a0b34", name:"FUN_010a0b34", lines:338, hints:"ACPI S0/S3/S5 transitions: ports 0xE0, 0x80"},
+      {addr:"0x010a03a0", name:"FUN_010a03a0", lines:235, hints:"Power state machine: warm/cold reset"},
+      {addr:"0x010a086c", name:"FUN_010a086c", lines:101, hints:"AMD FCH GPIO (port 0x87B4) power control"}
+    ]
+  },
+  {
+    id:"010e", addr:"0x010E0860–0x010EEDF0", funcs:83,
+    name:"PCIe: инициализация и training",
+    tags:["pci"],
+    desc:"PCIe link initialization и training. Чтение MSR для конфигурации PCIe lanes. На Steam Deck: NVMe подключён через PCIe Gen 3/4, GPU iGPU через внутренний PCIe, USB Type-C через PCIe (DisplayPort Alt Mode).",
+    bigFuncs:[
+      {addr:"0x010edbcc", name:"FUN_010edbcc", lines:164, hints:"PCIe link training + MSR config"},
+      {addr:"0x010e37cc", name:"FUN_010e37cc", lines:161, hints:"PCIe endpoint enumeration"},
+      {addr:"0x010ed174", name:"FUN_010ed174", lines:141, hints:"PCIe power management L0s/L1"}
+    ]
+  },
+  {
+    id:"0110", addr:"0x011001EC–0x0110FDA8", funcs:20,
+    name:"Reset Controller + POST codes",
+    tags:["pm","fw"],
+    desc:"Управление аппаратным сбросом. Порты 0xCF9 — PCIe/system reset register (стандарт), 0xCD6/0xCD7 — AMD FCH index/data ports. FUN_01109444 использует все три: полный reset sequence. FUN_0110fda8 — порты CD6/CD7 для AMD FCH registers.",
+    bigFuncs:[
+      {addr:"0x01109444", name:"FUN_01109444", lines:65, hints:"Hardware reset: CF9 (PCI reset) + CD6/CD7 (AMD FCH)"},
+      {addr:"0x0110fda8", name:"FUN_0110fda8", lines:99, hints:"AMD FCH register access via ports 0xCD6/0xCD7"}
+    ]
+  },
+  {
+    id:"0113", addr:"0x01130A04–0x0113FC24", funcs:101,
+    name:"AMD/AGESA + SMM infrastructure",
+    tags:["amd","sec"],
+    desc:"AMD AGESA SMM (System Management Mode) infrastructure. SMM — специальный высокопривилегированный режим процессора. Используется для: power button handling, thermal management, legacy PS/2 emulation, security features. SMI handler registration.",
+    bigFuncs:[
+      {addr:"0x01132ee8", name:"FUN_01132ee8", lines:160, hints:"SMI handler registration"},
+      {addr:"0x0113f6f4", name:"FUN_0113f6f4", lines:160, hints:"AGESA SMM callback setup"},
+      {addr:"0x011395ac", name:"FUN_011395ac", lines:154, hints:"SMM dispatch protocol"}
+    ]
+  },
+  {
+    id:"0120", addr:"0x01200094–0x0120F594", funcs:64,
+    name:"XHCI / USB 3.x: complex driver",
+    tags:["usb"],
+    desc:"Очень крупный USB 3.x XHCI драйвер. Vtable offset 0x2C88/0x2C68 — нестандартно большие смещения, характерны для XHCI Extended Capability. FUN_0120f594 (1139 строк!) и FUN_01209568 (1023 строки) — командная обработка XHCI контроллера.",
+    bigFuncs:[
+      {addr:"0x0120f594", name:"FUN_0120f594", lines:1139, hints:"⚠️ XHCI host controller command engine [0x2C88]"},
+      {addr:"0x01209568", name:"FUN_01209568", lines:1023, hints:"⚠️ XHCI event ring / transfer completion"},
+      {addr:"0x0120824c", name:"FUN_0120824c", lines:405, hints:"XHCI ring buffer management"},
+      {addr:"0x01207b00", name:"FUN_01207b00", lines:335, hints:"SMBus/I2C: USB-C controller (PD chip?)"}
+    ]
+  },
+  {
+    id:"0121", addr:"0x012145A0–0x0121B2EC", funcs:59,
+    name:"USB: XHCI + USB-C / Power Delivery",
+    tags:["usb"],
+    desc:"XHCI продолжение + I2C для USB-C Power Delivery controller (вероятно Cypress CCG6 или TI TPS65988 на Steam Deck). FUN_012169c8 (672 строки) — крупный обработчик XHCI event ring. I2C общение с USB-C PD chip.",
+    bigFuncs:[
+      {addr:"0x012169c8", name:"FUN_012169c8", lines:672, hints:"⚠️ XHCI event processor + USB-C PD I2C"},
+      {addr:"0x01214e60", name:"FUN_01214e60", lines:136, hints:"I2C: USB-C PD chip [vtable 0x1d0, 0x1e0, 0x200]"}
+    ]
+  },
+  {
+    id:"0122", addr:"0x012239F4–0x0122FF5B", funcs:46,
+    name:"AMD/AGESA: финальный модуль (AgesaFinalize?)",
+    tags:["amd"],
+    desc:"FUN_0122eda1 (698 строк) — последняя крупная функция в файле. Вероятно AgesaFinalize или ReadyToBoot callback: финализирует все AGESA структуры, передаёт управление OS loader.",
+    bigFuncs:[
+      {addr:"0x0122eda1", name:"FUN_0122eda1", lines:698, hints:"⚠️ AgesaFinalize / ReadyToBoot — передача управления ОС"}
+    ]
+  },
+  {
+    id:"0123", addr:"0x012302C2–0x0123FFF4", funcs:62,
+    name:"USB: Low/Full/High Speed (EHCI/OHCI)",
+    tags:["usb"],
+    desc:"USB 1.1/2.0 поддержка (EHCI/OHCI). Нестандартные vtable offsets 0x1320/0x1300 — размер протокольных структур EHCI. Управляет USB хабами и низкоскоростными устройствами (геймпады, клавиатуры).",
+    bigFuncs:[
+      {addr:"0x0123c6c8", name:"FUN_0123c6c8", lines:400, hints:"EHCI transfer queue management"},
+      {addr:"0x01239fa0", name:"FUN_01239fa0", lines:275, hints:"USB hub enumeration [vtable 0x1320]"},
+      {addr:"0x0123bf40", name:"FUN_0123bf40", lines:212, hints:"USB device setup / SetAddress"}
+    ]
+  },
+  {
+    id:"0124", addr:"0x01240034–0x0124F390", funcs:88,
+    name:"USB + Power Management + PCI",
+    tags:["usb","pm","pci"],
+    desc:"USB Power Management и PCI integration. Порты 0xCD4/0xCD5 — AMD FCH USB power control. FUN_0124a118 (239 строк) — управление питанием USB портов. CRC-ошибки при неверных USB descriptor. MSR для USB 3.x PHY config.",
+    bigFuncs:[
+      {addr:"0x0124a118", name:"FUN_0124a118", lines:239, hints:"USB port power control: AMD FCH ports 0xCD4/0xCD5"},
+      {addr:"0x0124c438", name:"FUN_0124c438", lines:175, hints:"USB descriptor CRC verify"},
+      {addr:"0x01249e24", name:"FUN_01249e24", lines:111, hints:"USB PHY MSR config + port 0x80 POST"}
+    ]
+  },
+  {
+    id:"0129", addr:"0x01290004–0x0129FFC4", funcs:48,
+    name:"Timer/Interrupt + SD/eMMC + Crypto",
+    tags:["misc","stor"],
+    desc:"Timer и interrupt management для storage. SD/eMMC поддержка (у некоторых версий Steam Deck есть microSD). Crypto примитивы для storage (AES-XTS для NVMe encryption?). FUN_01293878 (156 строк) — interrupt handler setup.",
+    bigFuncs:[
+      {addr:"0x01293878", name:"FUN_01293878", lines:156, hints:"Timer + interrupt registration for storage"},
+      {addr:"0x01295524", name:"FUN_01295524", lines:138, hints:"SD/eMMC command dispatch"},
+      {addr:"0x012951a0", name:"FUN_012951a0", lines:117, hints:"Crypto: AES/hash for storage encryption"}
+    ]
+  },
+  {
+    id:"012a", addr:"0x012A0050–0x012AFE90", funcs:70,
+    name:"NVRAM Variable Store (основной)",
+    tags:["fw","sec"],
+    desc:"Основной NVRAM Variable Store — хранит все UEFI переменные в SPI Flash. Поиск переменных по GUID+имени, итерация, чтение/запись. Именно здесь хранятся: SecureBoot, BootOrder, Setup конфигурация, Valve-специфичные переменные.",
+    bigFuncs:[
+      {addr:"0x012afe90", name:"FUN_012afe90", lines:78, hints:"Variable store mount + access"},
+      {addr:"0x012af7e4", name:"FUN_012af7e4", lines:94, hints:"EFI_INVALID_PARAMETER/DEVICE_ERROR on corrupt store"}
+    ]
+  },
+  {
+    id:"012b", addr:"0x012B00BC–0x012B01B8", funcs:4,
+    name:"CMOS/RTC: финальный модуль (порты 0x72/0x73)",
+    tags:["fw"],
+    desc:"Последние 4 функции файла — CMOS RTC. FUN_012b00bc: out(0x72, 0xF9) + in(0x73) — чтение нестандартного CMOS регистра 0xF9 (vender-specific, вероятно AMD FCH RTC extension). FUN_012b0124: сброс этого регистра.",
+    bigFuncs:[
+      {addr:"0x012b00bc", name:"FUN_012b00bc", lines:27, hints:"Read CMOS[0xF9]: порт 0x72→0x73. Проверка бита 0x200"},
+      {addr:"0x012b0124", name:"FUN_012b0124", lines:21, hints:"Reset CMOS[0xF9]: запись 0 в порт 0x73"}
+    ]
+  }
+];
+
+const TAG_MAP = {
+  "pci":"tag-pci","PCIe":"tag-pci","PCI":"tag-pci",
+  "usb":"tag-usb","USB":"tag-usb",
+  "net":"tag-net","Network":"tag-net","HTTP":"tag-net","DHCP":"tag-net","DNS":"tag-net","TFTP":"tag-net","PXE":"tag-net",
+  "sec":"tag-sec","SecureBoot":"tag-sec","TPM":"tag-sec",
+  "pm":"tag-pm","Power":"tag-pm","ACPI":"tag-pm",
+  "stor":"tag-stor","Block":"tag-stor","NVMe":"tag-stor","SPI":"tag-stor","SATA":"tag-stor",
+  "boot":"tag-boot","Boot":"tag-boot","Device Path":"tag-boot",
+  "amd":"tag-amd","AMD":"tag-amd","AGESA":"tag-amd",
+  "ui":"tag-ui","Console":"tag-ui","Font":"tag-ui","HII":"tag-ui",
+  "tpm":"tag-tpm","TCG":"tag-tpm","Crypto":"tag-tpm",
+  "fw":"tag-fw","NVRAM":"tag-fw","Capsule":"tag-fw","CMOS":"tag-fw","RTC":"tag-fw",
+  "misc":"tag-misc"
+};
+
+const TAG_LABEL = {
+  "pci":"PCI","usb":"USB","net":"Сеть","sec":"SecureBoot","pm":"Power",
+  "stor":"Storage","boot":"Boot","amd":"AMD/AGESA","ui":"UI","tpm":"TPM/TCG",
+  "fw":"Firmware","misc":"Misc"
+};
+
+function makeTag(t) {
+  const cls = TAG_MAP[t] || "tag-misc";
+  return `<span class="tag ${cls}">${TAG_LABEL[t]||t}</span>`;
+}
+
+function renderCard(m) {
+  const tags = m.tags.map(makeTag).join("");
+  const funcs = m.bigFuncs.map(f => `
+    <div class="func-item">
+      <div class="func-addr">${f.addr}</div>
+      <div class="func-info">
+        <div class="func-sig">${f.name}</div>
+        <div class="func-hints">${f.hints}</div>
+      </div>
+      <div class="func-size">${f.lines} ln</div>
+    </div>
+  `).join("");
+
+  return `
+  <div class="module-card" data-tags="${m.tags.join(",")}" data-text="${m.name} ${m.desc} ${m.bigFuncs.map(f=>f.name+f.hints).join(" ")}">
+    <div class="card-header" onclick="toggle(this)">
+      <div>
+        <div class="module-addr">MODULE 0x${m.id.toUpperCase()}xxxx · ${m.addr}</div>
+        <div class="module-name">${m.name}</div>
+      </div>
+      <div style="display:flex;align-items:center;gap:8px;flex-shrink:0">
+        <span class="func-count">${m.funcs} fn</span>
+        <span class="toggle-icon">▶</span>
+      </div>
+    </div>
+    <div class="tags">${tags}</div>
+    <div class="card-body">
+      <hr class="section-sep">
+      <div class="section-title">Описание</div>
+      <div class="desc-text">${m.desc}</div>
+      <div class="section-title">Ключевые функции</div>
+      <div class="func-list">${funcs}</div>
+    </div>
+  </div>`;
+}
+
+const grid = document.getElementById("grid");
+const noRes = document.getElementById("noResults");
+grid.innerHTML = MODULES.map(renderCard).join("");
+
+function toggle(header) {
+  const body = header.nextElementSibling.nextElementSibling;
+  const open = body.classList.toggle("open");
+  header.classList.toggle("open", open);
+}
+
+let activeFilter = "all";
+
+document.querySelectorAll(".filter-btn").forEach(btn => {
+  btn.addEventListener("click", () => {
+    document.querySelectorAll(".filter-btn").forEach(b => b.classList.remove("active"));
+    btn.classList.add("active");
+    activeFilter = btn.dataset.filter;
+    applyFilters();
+  });
+});
+
+document.getElementById("search").addEventListener("input", applyFilters);
+
+function applyFilters() {
+  const q = document.getElementById("search").value.toLowerCase();
+  let visible = 0;
+  document.querySelectorAll(".module-card").forEach(card => {
+    const tags = card.dataset.tags;
+    const text = card.dataset.text.toLowerCase();
+    const tagOk = activeFilter === "all" || tags.includes(activeFilter);
+    const searchOk = !q || text.includes(q);
+    const show = tagOk && searchOk;
+    card.classList.toggle("hidden", !show);
+    if(show) visible++;
+  });
+  noRes.style.display = visible === 0 ? "block" : "none";
+}
+</script>
+</body>
+</html>
